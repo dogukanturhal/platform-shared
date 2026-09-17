@@ -1,0 +1,15 @@
+# Build artifacts
+coverage.out
+coverage.html
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Go workspace files (workspace is dev-only convenience)
+go.work.local
+go.work.sum.local

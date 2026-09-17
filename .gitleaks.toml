@@ -1,0 +1,29 @@
+title = "platform-shared Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Global allowlist for test fixtures and dev-only values"
+paths = [
+    '''_test\.go$''',
+    '''\.gitlab-ci\.yml$''',
+    '''testdata/''',
+]
+regexes = [
+    # Dev-only encryption keys (repeating hex pattern, zero entropy)
+    '''0123456789abcdef''',
+    '''fedcba9876543210''',
+    # Test/placeholder values
+    '''(?i)(test|mock|fake|example|placeholder|changeme|dummy)[_-]?(secret|key|token|password|api)''',
+    '''(?i)(secret|key|token|password|api)[_-]?(test|mock|fake|example|placeholder)''',
+    # Dev-only JWT secrets
+    '''test-secret-key-for-jwt''',
+    '''test-jwt-secret-for-ci''',
+    # Test API keys with obvious patterns
+    '''test-api-key-\d+''',
+    # Example JWTs (base64 header always starts the same)
+    '''eyJhbGciOiJ''',
+    # UUIDs (not secrets)
+    '''f47ac10b-58cc-4372''',
+]

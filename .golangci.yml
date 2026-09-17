@@ -1,0 +1,44 @@
+# golangci-lint v2 config for platform-shared.
+#
+# Enables gosec as a managed linter. golangci-lint's gosec wrapper
+# honors `//nolint:gosec` directives (which standalone gosec does
+# not), so the team's existing inline rationales work as intended.
+#
+# CI uses `golangci-lint run --timeout 5m ./...` per .gitlab-ci.yml.
+# Submodules (manifest/, storage-sdk/) run their own lint pass; this
+# config applies to whichever directory golangci-lint is invoked from.
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - gosec
+    - revive
+    - misspell
+    - unconvert
+
+  settings:
+    gosec:
+      # Match the standalone gosec job's gate exactly so behavior is
+      # identical to what we backported. Severity + confidence both
+      # medium: blocks HIGH/MEDIUM issues at MEDIUM+ confidence.
+      severity: medium
+      confidence: medium
+      # G401/G501 (deprecated crypto) sometimes false-positive on
+      # test-helper SHA1 use. Keep enabled; tests have //nolint:gosec.
+      excludes: []
+
+  exclusions:
+    rules:
+      # Test fixtures contain intentionally-weak crypto + fake creds
+      - path: _test\.go
+        linters:
+          - gosec
+      - path: testdata/
+        linters:
+          - gosec
