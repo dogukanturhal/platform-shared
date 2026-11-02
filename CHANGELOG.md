@@ -42,6 +42,13 @@ v1.0.0, any minor release may contain breaking changes.
   `quota/manifest`), which were specific to a private deployment.
 - Internal design notes and a release helper script.
 
+## [0.5.1]
+
+### Fixed
+
+- TenantConnectionManager now honours the tenant's host and port when building
+  connection strings (#20).
+
 ## [0.3.1]
 
 The version recorded in `VERSION.txt` at the time of this sync. No tag has been

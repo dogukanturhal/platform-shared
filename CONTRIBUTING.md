@@ -42,6 +42,10 @@ than one). CI runs the same commands plus `govulncheck` and CodeQL.
 - Commit messages: a short imperative summary line, then a body explaining why
   when the reason is not obvious.
 
+## How your contribution lands
+
+This GitHub repository is a mirror of our main development repository. When a pull request is merged here, we import it there with your authorship and sign-off preserved, and it comes back in the next sync. You don't need to do anything extra.
+
 ## Reporting bugs and asking questions
 
 Use the issue templates. For security problems, follow [SECURITY.md](SECURITY.md)
