@@ -1,6 +1,6 @@
 # Resilience Package Usage Guide
 
-## Integration with ExampleSuite Platform Services
+## Integration
 
 ### Quick Start for Service Developers
 
@@ -8,7 +8,7 @@
 
 ```go
 import (
-    "github.com/hexxlock/platform-services/shared/resilience"
+    "github.com/dogukanturhal/platform-shared/resilience"
 )
 ```
 
@@ -69,7 +69,7 @@ import (
     "fmt"
     "net/http"
 
-    "github.com/hexxlock/platform-services/shared/resilience"
+    "github.com/dogukanturhal/platform-shared/resilience"
 )
 
 type IAMClient struct {
@@ -128,7 +128,7 @@ import (
     "fmt"
     "net/http"
 
-    "github.com/hexxlock/platform-services/shared/resilience"
+    "github.com/dogukanturhal/platform-shared/resilience"
 )
 
 type PaymentClient struct {
@@ -178,7 +178,7 @@ import (
     "context"
     "time"
 
-    "github.com/hexxlock/platform-services/shared/resilience"
+    "github.com/dogukanturhal/platform-shared/resilience"
 )
 
 type TenantServiceClient struct {

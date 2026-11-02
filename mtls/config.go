@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package mtls provides mutual TLS configuration for ExampleSuite platform services.
+// Package mtls provides mutual TLS configuration for multi-tenant services.
 //
 // It supports three modes of operation:
 //

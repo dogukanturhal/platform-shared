@@ -115,6 +115,14 @@ func (m *Middleware) RequirePermission(permissions ...string) gin.HandlerFunc {
 
 		// Check if user has any of the required permissions
 		if !user.HasAnyPermission(permissions...) {
+			allowed, handled := m.checkViaResolver(c, user, permissions, false)
+			if handled {
+				return
+			}
+			if allowed {
+				c.Next()
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"success": false,
 				"error": gin.H{
@@ -146,6 +154,14 @@ func (m *Middleware) RequireAllPermissions(permissions ...string) gin.HandlerFun
 
 		// Check if user has all required permissions
 		if !user.HasAllPermissions(permissions...) {
+			allowed, handled := m.checkViaResolver(c, user, permissions, true)
+			if handled {
+				return
+			}
+			if allowed {
+				c.Next()
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"success": false,
 				"error": gin.H{
@@ -191,7 +207,13 @@ func (m *Middleware) RequireRole(roles ...string) gin.HandlerFunc {
 	}
 }
 
-// RequireServiceAuth returns a middleware that only allows service-to-service auth
+// RequireServiceAuth returns a middleware that only allows service-to-service auth.
+//
+// WARNING: it accepts ONLY the legacy service API key (tryAPIKeyAuth); a
+// Falcon-ID client_credentials JWT is rejected with 401. Prod services do
+// not configure API keys, so a route behind this middleware is unreachable
+// there. For service-to-service routes use RequireAuth() plus
+// RequirePermission(<scope>) instead.
 func (m *Middleware) RequireServiceAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !m.tryAPIKeyAuth(c) {
@@ -228,7 +250,7 @@ func (m *Middleware) RequireTenant() gin.HandlerFunc {
 
 // tryJWTAuth attempts JWT authentication and sets context if successful.
 // It checks the Authorization header first, then falls back to the
-// hexxlock_access_token HttpOnly cookie (used by browser-based clients).
+// access_token HttpOnly cookie (used by browser-based clients).
 func (m *Middleware) tryJWTAuth(c *gin.Context) bool {
 	var tokenString string
 
@@ -247,7 +269,7 @@ func (m *Middleware) tryJWTAuth(c *gin.Context) bool {
 		}
 	} else {
 		// Fallback: check HttpOnly cookie (browser-based auth)
-		cookie, err := c.Cookie("hexxlock_access_token")
+		cookie, err := c.Cookie("access_token")
 		if err != nil || cookie == "" {
 			return false
 		}
@@ -267,6 +289,8 @@ func (m *Middleware) tryJWTAuth(c *gin.Context) bool {
 
 	// Set context values
 	m.setContextFromClaims(c, claims)
+	// Kept for the optional PermissionChecker only; never logged or serialized.
+	c.Set(bearerTokenKey, tokenString)
 	return true
 }
 

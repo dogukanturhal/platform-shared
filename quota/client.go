@@ -20,6 +20,10 @@ import (
 type ResourceType string
 
 // ResourceTypeUsers and its siblings are the supported quota resource types.
+//
+// Deprecated: the quota-service registry (GET /internal/v1/quota/registry, Client.Registry)
+// is the source of truth for keys; pass registry keys as plain strings to the v2 Client.
+// These constants stay for existing importers and are no longer extended.
 const (
 	ResourceTypeUsers            ResourceType = "users"
 	ResourceTypeStorageBytes     ResourceType = "storage_bytes"
@@ -34,7 +38,7 @@ const (
 	ResourceTypeWebhooks         ResourceType = "webhooks"
 	ResourceTypeDocuments        ResourceType = "documents"
 
-	// Marketing-automation resources (Mearax plan limits) — registered in
+	// Marketing-automation resources (marketing plan limits) — registered in
 	// quota-service validators 2026-06-06 alongside the marketing
 	// services' usage-reporting wiring.
 	ResourceTypeWorkflows ResourceType = "workflows"
@@ -453,6 +457,9 @@ type QuotaExceededError struct { //nolint:revive // public API stability
 	CurrentUsage int64
 	Limit        int64
 	Message      string
+	// Requested and Enforcement are filled from the 409 quota_exceeded problem (SDK v2).
+	Requested   int64
+	Enforcement string
 }
 
 func (e *QuotaExceededError) Error() string {

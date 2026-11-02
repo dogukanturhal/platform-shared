@@ -93,6 +93,6 @@ tx.Commit(ctx)
 
 ## Reference implementation
 
-`example-suite/platform-services/domain-management` was the first adopter.
+The first adopter was a DNS-management service.
 See `internal/services/outbox_handlers.go` there for an example of
 list-before-create idempotency on a Cloudflare DNS publish handler.

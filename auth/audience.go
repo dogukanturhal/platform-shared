@@ -13,7 +13,7 @@ package auth
 // audience per consuming service, so this is one check shared by every
 // platform-shared consumer, not a per-service value.
 const (
-	PlatformAPIAudience       = "https://api.hexxlock.com"
+	PlatformAPIAudience       = "https://api.example.com"
 	LegacyServiceMeshAudience = "hexxlock-services"
 )
 

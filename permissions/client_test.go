@@ -267,3 +267,42 @@ func TestRegisterWithRetry_CancelledContext(t *testing.T) {
 	// May fail with context cancelled or http error depending on timing.
 	assert.Error(t, err)
 }
+
+func TestParseManifest_Valid(t *testing.T) {
+	m, err := ParseManifest([]byte("module: billing\npermissions:\n  - resource: invoices\n    actions: [create, read]\n    description: Invoices\n"), "embedded")
+	require.NoError(t, err)
+	assert.Equal(t, "billing", m.Module)
+	require.Len(t, m.Permissions, 1)
+	assert.Equal(t, []string{"create", "read"}, m.Permissions[0].Actions)
+}
+
+func TestParseManifest_Invalid(t *testing.T) {
+	_, err := ParseManifest([]byte("permissions: []\n"), "embedded")
+	require.ErrorContains(t, err, "module field is required")
+
+	_, err = ParseManifest([]byte("module: x\npermissions:\n  - actions: [read]\n"), "embedded")
+	require.ErrorContains(t, err, "missing resource")
+
+	_, err = ParseManifest([]byte("module: [unclosed"), "embedded")
+	require.ErrorContains(t, err, "parse manifest")
+}
+
+func TestRegisterFromManifestBytes(t *testing.T) {
+	var got registerModuleRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(registerModuleResponse{Module: got.Module, Registered: 1})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key", "billing", zap.NewNop())
+	err := client.RegisterFromManifestBytes(context.Background(), []byte("module: billing\npermissions:\n  - resource: invoices\n    actions: [read]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "billing", got.Module)
+	require.Len(t, got.Permissions, 1)
+	assert.Equal(t, "invoices", got.Permissions[0].Resource)
+
+	err = client.RegisterFromManifestBytes(context.Background(), []byte("permissions: []\n"))
+	require.ErrorContains(t, err, "load manifest")
+}

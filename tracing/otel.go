@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package tracing provides OpenTelemetry integration for ExampleSuite platform services.
+// Package tracing provides OpenTelemetry integration for multi-tenant services.
 package tracing
 
 import (

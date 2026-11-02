@@ -1,6 +1,6 @@
 # Security Package
 
-Shared security utilities for ExampleSuite platform services.
+Shared security utilities for multi-tenant services.
 
 ## URL Validator (SSRF Protection)
 
@@ -23,7 +23,7 @@ The URL validator provides comprehensive protection against Server-Side Request 
 #### Basic Usage (Default Configuration)
 
 ```go
-import "github.com/hexxlock/platform-services/shared/security"
+import "github.com/dogukanturhal/platform-shared/security"
 
 // Validate a user-supplied URL
 func handleCallback(c *gin.Context) {
@@ -44,10 +44,10 @@ func handleCallback(c *gin.Context) {
 #### With Domain Allowlist
 
 ```go
-import "github.com/hexxlock/platform-services/shared/security"
+import "github.com/dogukanturhal/platform-shared/security"
 
 // Only allow specific domains
-allowedDomains := []string{"hexxlock.com", "example.com"}
+allowedDomains := []string{"example.org", "example.com"}
 
 if err := security.ValidateURLWithAllowlist(redirectURL, allowedDomains); err != nil {
     return fmt.Errorf("invalid redirect URL: %w", err)
@@ -57,13 +57,13 @@ if err := security.ValidateURLWithAllowlist(redirectURL, allowedDomains); err !=
 #### Advanced Configuration
 
 ```go
-import "github.com/hexxlock/platform-services/shared/security"
+import "github.com/dogukanturhal/platform-shared/security"
 
 // Create custom validator
 config := security.URLValidatorConfig{
     RequireHTTPS:    true,
     BlockPrivateIPs: true,
-    AllowedDomains:  []string{"hexxlock.com", "partner.com"},
+    AllowedDomains:  []string{"example.org", "partner.com"},
 }
 
 validator := security.NewURLValidator(config)
@@ -304,4 +304,4 @@ For questions or security concerns:
 ---
 
 **Last Updated**: 2026-02-11
-**Maintainer**: ExampleSuite Security Team
+**Security contact**: see SECURITY.md in the repository root

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package errors provides standardized error types and codes for ExampleSuite platform services.
+// Package errors provides standardized error types and codes for multi-tenant services.
 package errors
 
 import "net/http"

@@ -123,8 +123,7 @@ var (
 // is configured to compare against — on both outcomes (match and mismatch),
 // and regardless of whether RequireValidIssuer is currently true, which is
 // the whole point: see Config.LogIssuerCheck's doc comment for why a
-// reject-only signal cannot answer whether the check is engaging (t-445,
-// c-306).
+// reject-only signal cannot answer whether the check is engaging.
 func logIssuerCheck(required, matched bool, gotIssuer, wantIssuer string) {
 	issuerCheckLoggerOnce.Do(func() {
 		logger, err := sharedLogger.NewLogger("info", "production")
@@ -203,7 +202,7 @@ func (v *TokenValidator) ValidateAccessToken(tokenString string) (*Claims, error
 
 	// Diagnostic: report what the issuer check saw, unconditionally, before
 	// the enforcement gate below runs and regardless of whether
-	// RequireValidIssuer is even true. See Config.LogIssuerCheck and t-445.
+	// RequireValidIssuer is even true. See Config.LogIssuerCheck.
 	if v.config.LogIssuerCheck && v.config.JWTIssuer != "" {
 		logIssuerCheck(v.config.RequireValidIssuer, claims.Issuer == v.config.JWTIssuer, claims.Issuer, v.config.JWTIssuer)
 	}

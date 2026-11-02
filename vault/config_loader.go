@@ -27,7 +27,10 @@ type ConfigLoader struct {
 
 // SecretMapping defines how a Vault secret maps to configuration.
 type SecretMapping struct {
-	// VaultPath is the path in Vault (e.g., "example/platform/jwt")
+	// VaultPath is the path in Vault, relative to the client's configured KV
+	// v2 mount (Client.config.MountPath, default "example") -- it must NOT
+	// repeat the mount name. E.g. "platform/jwt" resolves to
+	// example/data/platform/jwt.
 	VaultPath string
 
 	// VaultKey is the key within the secret
@@ -81,6 +84,18 @@ func LoadConfigFromEnv() Config {
 
 	if v := os.Getenv("VAULT_SECRET_ID"); v != "" {
 		cfg.SecretID = v
+	}
+
+	if v := os.Getenv("VAULT_K8S_ROLE"); v != "" {
+		cfg.KubernetesRole = v
+	}
+
+	if v := os.Getenv("VAULT_K8S_MOUNT_PATH"); v != "" {
+		cfg.KubernetesMountPath = v
+	}
+
+	if v := os.Getenv("VAULT_K8S_TOKEN_PATH"); v != "" {
+		cfg.KubernetesTokenPath = v
 	}
 
 	if v := os.Getenv("VAULT_NAMESPACE"); v != "" {
@@ -218,228 +233,228 @@ func (c *ConfigLoader) SetViperDefaults(ctx context.Context) error {
 	return nil
 }
 
-// StandardMappings returns the standard ExampleSuite secret mappings.
+// StandardMappings returns the standard secret mappings.
 func StandardMappings() map[string]SecretMapping {
 	return map[string]SecretMapping{
 		"jwt_secret": {
-			VaultPath: "example/platform/jwt",
+			VaultPath: "platform/jwt",
 			VaultKey:  "secret",
 			EnvVar:    "JWT_SECRET",
 			Required:  true,
 		},
 		"jwt_issuer": {
-			VaultPath: "example/platform/jwt",
+			VaultPath: "platform/jwt",
 			VaultKey:  "issuer",
 			EnvVar:    "JWT_ISSUER",
 			Required:  false,
 		},
 		"token_hash_salt": {
-			VaultPath: "example/platform/token-salt",
+			VaultPath: "platform/token-salt",
 			VaultKey:  "salt",
 			EnvVar:    "TOKEN_HASH_SALT",
 			Required:  true,
 		},
 		"encryption_key": {
-			VaultPath: "example/platform/encryption-keys/primary",
+			VaultPath: "platform/encryption-keys/primary",
 			VaultKey:  "key",
 			EnvVar:    "ENCRYPTION_KEY",
 			Required:  true,
 		},
 		"internal_api_key": {
-			VaultPath: "example/platform/internal-api-key",
+			VaultPath: "platform/internal-api-key",
 			VaultKey:  "key",
 			EnvVar:    "INTERNAL_API_KEY",
 			Required:  true,
 		},
 		"postgres_password": {
-			VaultPath: "example/infrastructure/postgres/master",
+			VaultPath: "infrastructure/postgres/master",
 			VaultKey:  "password",
 			EnvVar:    "POSTGRES_PASSWORD",
 			Required:  true,
 		},
 		"redis_password": {
-			VaultPath: "example/infrastructure/redis",
+			VaultPath: "infrastructure/redis",
 			VaultKey:  "password",
 			EnvVar:    "REDIS_PASSWORD",
 			Required:  true,
 		},
 		"stripe_secret_key": {
-			VaultPath: "example/payment-providers/stripe",
+			VaultPath: "payment-providers/stripe",
 			VaultKey:  "secret-key",
 			EnvVar:    "STRIPE_SECRET_KEY",
 			Required:  false,
 		},
 		"stripe_webhook_secret": {
-			VaultPath: "example/payment-providers/stripe",
+			VaultPath: "payment-providers/stripe",
 			VaultKey:  "webhook-secret",
 			EnvVar:    "STRIPE_WEBHOOK_SECRET",
 			Required:  false,
 		},
 		"google_client_id": {
-			VaultPath: "example/identity-providers/google",
+			VaultPath: "identity-providers/google",
 			VaultKey:  "client-id",
 			EnvVar:    "GOOGLE_CLIENT_ID",
 			Required:  false,
 		},
 		"google_client_secret": {
-			VaultPath: "example/identity-providers/google",
+			VaultPath: "identity-providers/google",
 			VaultKey:  "client-secret",
 			EnvVar:    "GOOGLE_CLIENT_SECRET",
 			Required:  false,
 		},
 		"microsoft_client_id": {
-			VaultPath: "example/identity-providers/microsoft",
+			VaultPath: "identity-providers/microsoft",
 			VaultKey:  "client-id",
 			EnvVar:    "MICROSOFT_CLIENT_ID",
 			Required:  false,
 		},
 		"microsoft_client_secret": {
-			VaultPath: "example/identity-providers/microsoft",
+			VaultPath: "identity-providers/microsoft",
 			VaultKey:  "client-secret",
 			EnvVar:    "MICROSOFT_CLIENT_SECRET",
 			Required:  false,
 		},
 		"smtp_password": {
-			VaultPath: "example/messaging/smtp/default",
+			VaultPath: "messaging/smtp/default",
 			VaultKey:  "password",
 			EnvVar:    "SMTP_PASSWORD",
 			Required:  false,
 		},
 		"twilio_auth_token": {
-			VaultPath: "example/messaging/twilio",
+			VaultPath: "messaging/twilio",
 			VaultKey:  "auth-token",
 			EnvVar:    "TWILIO_AUTH_TOKEN",
 			Required:  false,
 		},
 		"sendgrid_api_key": {
-			VaultPath: "example/messaging/sendgrid",
+			VaultPath: "messaging/sendgrid",
 			VaultKey:  "api-key",
 			EnvVar:    "SENDGRID_API_KEY",
 			Required:  false,
 		},
 		"spicedb_token": {
-			VaultPath: "example/infrastructure/spicedb",
+			VaultPath: "infrastructure/spicedb",
 			VaultKey:  "token",
 			EnvVar:    "SPICEDB_GRPC_PRESHARED_KEY",
 			Required:  false,
 		},
 		"ldap_bind_password": {
-			VaultPath: "example/infrastructure/ldap",
+			VaultPath: "infrastructure/ldap",
 			VaultKey:  "password",
 			EnvVar:    "LDAP_BIND_PASSWORD",
 			Required:  false,
 		},
 		"minio_access_key": {
-			VaultPath: "example/infrastructure/minio",
+			VaultPath: "infrastructure/minio",
 			VaultKey:  "access-key",
 			EnvVar:    "MINIO_ACCESS_KEY",
 			Required:  false,
 		},
 		"minio_secret_key": {
-			VaultPath: "example/infrastructure/minio",
+			VaultPath: "infrastructure/minio",
 			VaultKey:  "secret-key",
 			EnvVar:    "MINIO_SECRET_KEY",
 			Required:  false,
 		},
 		"cloudflare_api_token": {
-			VaultPath: "example/external/cloudflare",
+			VaultPath: "external/cloudflare",
 			VaultKey:  "api-token",
 			EnvVar:    "CLOUDFLARE_API_TOKEN",
 			Required:  false,
 		},
-		"iyzico_api_key": {
-			VaultPath: "example/payment-providers/iyzico",
+		"examplepay_api_key": {
+			VaultPath: "payment-providers/examplepay",
 			VaultKey:  "api-key",
-			EnvVar:    "IYZICO_API_KEY",
+			EnvVar:    "EXAMPLEPAY_API_KEY",
 			Required:  false,
 		},
-		"iyzico_secret_key": {
-			VaultPath: "example/payment-providers/iyzico",
+		"examplepay_secret_key": {
+			VaultPath: "payment-providers/examplepay",
 			VaultKey:  "secret-key",
-			EnvVar:    "IYZICO_SECRET_KEY",
+			EnvVar:    "EXAMPLEPAY_SECRET_KEY",
 			Required:  false,
 		},
 		"docusign_integration_key": {
-			VaultPath: "example/external/docusign",
+			VaultPath: "external/docusign",
 			VaultKey:  "integration-key",
 			EnvVar:    "DOCUSIGN_INTEGRATION_KEY",
 			Required:  false,
 		},
 		"docusign_webhook_secret": {
-			VaultPath: "example/external/docusign",
+			VaultPath: "external/docusign",
 			VaultKey:  "webhook-secret",
 			EnvVar:    "DOCUSIGN_WEBHOOK_SECRET",
 			Required:  false,
 		},
 		"livekit_api_key": {
-			VaultPath: "example/infrastructure/livekit",
+			VaultPath: "infrastructure/livekit",
 			VaultKey:  "api-key",
 			EnvVar:    "LIVEKIT_API_KEY",
 			Required:  false,
 		},
 		"livekit_api_secret": {
-			VaultPath: "example/infrastructure/livekit",
+			VaultPath: "infrastructure/livekit",
 			VaultKey:  "api-secret",
 			EnvVar:    "LIVEKIT_API_SECRET",
 			Required:  false,
 		},
 		"grafana_password": {
-			VaultPath: "example/monitoring/grafana",
+			VaultPath: "monitoring/grafana",
 			VaultKey:  "password",
 			EnvVar:    "GF_SECURITY_ADMIN_PASSWORD",
 			Required:  false,
 		},
 		"kafka_brokers": {
-			VaultPath: "example/infrastructure/kafka",
+			VaultPath: "infrastructure/kafka",
 			VaultKey:  "brokers",
 			EnvVar:    "KAFKA_BROKERS",
 			Required:  false,
 		},
 		"kafka_sasl_username": {
-			VaultPath: "example/infrastructure/kafka",
+			VaultPath: "infrastructure/kafka",
 			VaultKey:  "sasl-username",
 			EnvVar:    "KAFKA_SASL_USERNAME",
 			Required:  false,
 		},
 		"kafka_sasl_password": {
-			VaultPath: "example/infrastructure/kafka",
+			VaultPath: "infrastructure/kafka",
 			VaultKey:  "sasl-password",
 			EnvVar:    "KAFKA_SASL_PASSWORD",
 			Required:  false,
 		},
 		"kafka_ssl_keystore_password": {
-			VaultPath: "example/infrastructure/kafka",
+			VaultPath: "infrastructure/kafka",
 			VaultKey:  "ssl-keystore-password",
 			EnvVar:    "KAFKA_SSL_KEYSTORE_PASSWORD",
 			Required:  false,
 		},
 		"kafka_ssl_truststore_password": {
-			VaultPath: "example/infrastructure/kafka",
+			VaultPath: "infrastructure/kafka",
 			VaultKey:  "ssl-truststore-password",
 			EnvVar:    "KAFKA_SSL_TRUSTSTORE_PASSWORD",
 			Required:  false,
 		},
 		// NATS removed: all messaging consolidated to Kafka
 		"cassandra_host": {
-			VaultPath: "example/infrastructure/cassandra",
+			VaultPath: "infrastructure/cassandra",
 			VaultKey:  "host",
 			EnvVar:    "CASSANDRA_HOST",
 			Required:  false,
 		},
 		"opnsense_api_key": {
-			VaultPath: "example/external/opnsense",
+			VaultPath: "external/opnsense",
 			VaultKey:  "api-key",
 			EnvVar:    "OPNSENSE_API_KEY",
 			Required:  false,
 		},
 		"opnsense_api_secret": {
-			VaultPath: "example/external/opnsense",
+			VaultPath: "external/opnsense",
 			VaultKey:  "api-secret",
 			EnvVar:    "OPNSENSE_API_SECRET",
 			Required:  false,
 		},
 		"exchange_password": {
-			VaultPath: "example/external/exchange",
+			VaultPath: "external/exchange",
 			VaultKey:  "password",
 			EnvVar:    "EXCHANGE_SERVICE_PASSWORD",
 			Required:  false,
