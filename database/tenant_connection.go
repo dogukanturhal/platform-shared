@@ -10,6 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -706,40 +709,81 @@ func (m *TenantConnectionManager) createDatabaseConnection(ctx context.Context, 
 	return db, nil
 }
 
-func (m *TenantConnectionManager) buildDSN(database, schema, host string, _ int) string {
-	// Parse master DSN to extract credentials
-	// Format: postgres://user:pass@host:port/dbname?params
-	baseDSN := m.masterDSN
+func (m *TenantConnectionManager) buildDSN(database, schema, host string, port int) string {
+	// masterDSN is normally a URL: postgres://user:pass@host:port/dbname?params
+	u, err := url.Parse(m.masterDSN)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		return buildKeyValueDSN(m.masterDSN, database, schema, host, port)
+	}
 
-	// Replace database name
 	if database != "" {
-		// Simple replacement - assumes standard format
-		parts := strings.Split(baseDSN, "/")
-		if len(parts) > 3 {
-			// Get everything after the last /
-			dbPart := parts[len(parts)-1]
-			// Check for query params
-			if idx := strings.Index(dbPart, "?"); idx > 0 {
-				baseDSN = strings.Join(parts[:len(parts)-1], "/") + "/" + database + dbPart[idx:]
-			} else {
-				baseDSN = strings.Join(parts[:len(parts)-1], "/") + "/" + database
+		u.Path = "/" + database
+		u.RawPath = ""
+	}
+
+	if host != "" || port > 0 {
+		h, p := u.Hostname(), u.Port()
+		if host != "" {
+			var hp string
+			h, hp = splitHostPort(host)
+			if hp != "" {
+				p = hp
 			}
 		}
-	}
-
-	// TODO: Replace host and port if different (simplified - production should use proper URL parsing).
-	_ = host
-
-	// Add search_path for schema strategy
-	if schema != "" && schema != schemaPublic {
-		if strings.Contains(baseDSN, "?") {
-			baseDSN += fmt.Sprintf("&search_path=%s,public", schema)
+		if port > 0 {
+			p = strconv.Itoa(port)
+		}
+		if p != "" {
+			u.Host = net.JoinHostPort(h, p)
+		} else if strings.Contains(h, ":") {
+			u.Host = "[" + h + "]"
 		} else {
-			baseDSN += fmt.Sprintf("?search_path=%s,public", schema)
+			u.Host = h
 		}
 	}
 
-	return baseDSN
+	if schema != "" && schema != schemaPublic {
+		q := u.Query()
+		q.Set("search_path", schema+",public")
+		u.RawQuery = q.Encode()
+	}
+
+	return u.String()
+}
+
+// splitHostPort splits "host", "host:port", "[v6]:port", "[v6]" or a bare IPv6
+// literal into host (no brackets) and port (possibly empty).
+func splitHostPort(hostport string) (host, port string) {
+	if h, p, err := net.SplitHostPort(hostport); err == nil {
+		return h, p
+	}
+	return strings.Trim(hostport, "[]"), ""
+}
+
+// buildKeyValueDSN handles a key=value master DSN by appending overrides;
+// later keys win in libpq/pgx.
+func buildKeyValueDSN(base, database, schema, host string, port int) string {
+	quote := func(v string) string {
+		return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
+	}
+	dsn := base
+	if database != "" {
+		dsn += " dbname=" + quote(database)
+	}
+	if host != "" {
+		h, p := splitHostPort(host)
+		dsn += " host=" + quote(h)
+		if p != "" && port <= 0 {
+			dsn += " port=" + p
+		}
+	}
+	if port > 0 {
+		dsn += " port=" + strconv.Itoa(port)
+	}
+	if schema != "" && schema != schemaPublic {
+		dsn += " search_path=" + quote(schema+",public")
+	}
+	return dsn
 }
 
 // TenantTx wraps a transaction with tenant context
