@@ -13,3 +13,5 @@
 - [ ] `make lint` and `make vuln` pass
 - [ ] Exported API changes are noted as breaking in the description (the module is v0.x)
 - [ ] `CHANGELOG.md` updated under `[Unreleased]` for user-visible changes
+- [ ] This PR does one thing and is under 400 changed lines
+- [ ] AI assistance (if any) is described above
