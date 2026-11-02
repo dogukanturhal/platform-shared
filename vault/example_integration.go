@@ -5,9 +5,9 @@
 package vault
 
 /*
-VAULT INTEGRATION GUIDE FOR EXAMPLESUITE SERVICES
+VAULT INTEGRATION GUIDE
 
-This file shows how to integrate HashiCorp Vault into a ExampleSuite platform service.
+This file shows how to integrate HashiCorp Vault into a service.
 Copy the relevant sections into your service's main.go.
 
 ==============================================================================

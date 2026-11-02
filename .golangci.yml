@@ -1,12 +1,7 @@
-# golangci-lint v2 config for platform-shared.
-#
-# Enables gosec as a managed linter. golangci-lint's gosec wrapper
-# honors `//nolint:gosec` directives (which standalone gosec does
-# not), so the team's existing inline rationales work as intended.
-#
-# CI uses `golangci-lint run --timeout 5m ./...` per .gitlab-ci.yml.
-# Submodules (manifest/, storage-sdk/) run their own lint pass; this
-# config applies to whichever directory golangci-lint is invoked from.
+# golangci-lint v2 config for platform-shared (public).
+# Applies to whichever module directory golangci-lint is invoked from.
+# revive's exported-comment and naming rules are not enforced: the code base
+# predates them. gosec stays on and honours inline //nolint:gosec rationales.
 
 version: "2"
 
@@ -18,23 +13,28 @@ linters:
   default: standard
   enable:
     - gosec
-    - revive
     - misspell
     - unconvert
 
   settings:
     gosec:
-      # Match the standalone gosec job's gate exactly so behavior is
-      # identical to what we backported. Severity + confidence both
-      # medium: blocks HIGH/MEDIUM issues at MEDIUM+ confidence.
       severity: medium
       confidence: medium
-      # G401/G501 (deprecated crypto) sometimes false-positive on
-      # test-helper SHA1 use. Keep enabled; tests have //nolint:gosec.
       excludes: []
+    staticcheck:
+      # Quick-fix style suggestions (QF*) are not defects.
+      checks: ["all", "-QF*", "-ST1023", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022"]
 
   exclusions:
     rules:
+      # Deferred Close on readers/writers/bodies: nothing useful to do on error.
+      - text: "Error return value of .*Close.* is not checked"
+        linters:
+          - errcheck
+      # Retained helper kept for upstream parity.
+      - path: quota/registry\.go
+        linters:
+          - unused
       # Test fixtures contain intentionally-weak crypto + fake creds
       - path: _test\.go
         linters:

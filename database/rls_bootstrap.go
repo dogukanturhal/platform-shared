@@ -57,8 +57,14 @@ const upTemplate = `-- =====================================================
 --
 --                tenant_id = current_setting('app.current_tenant_id', true)::UUID
 --
---              This requires the application to SET LOCAL app.current_tenant_id
---              at the start of each request (handled by shared RLSMiddleware).
+--              This requires the application to set app.current_tenant_id via
+--              set_config(..., true) (i.e. SET LOCAL semantics) inside the SAME
+--              transaction as the query — see database.WithTenantContext /
+--              WithTenantContextSQLX / WithTenantContextPgx in platform-shared.
+--              A connection-level or session-scoped setting is NOT safe here:
+--              this database is served through a PgBouncer transaction-mode
+--              pooler, so session state does not reliably reach the backend
+--              that serves the next statement.
 -- Date: {{.Date}}
 -- Schema: {{.Schema}}
 -- =====================================================

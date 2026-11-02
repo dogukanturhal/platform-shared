@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package vault provides a centralized HashiCorp Vault client for secret management
-// across ExampleSuite platform services.
+// across multi-tenant services.
 package vault
 
 import (
@@ -31,6 +31,30 @@ type Config struct {
 	// SecretID for AppRole authentication.
 	SecretID string `mapstructure:"VAULT_SECRET_ID"`
 
+	// KubernetesRole is the Vault Kubernetes auth role to log in as. Setting
+	// this selects Kubernetes auth (the pod's projected ServiceAccount token
+	// as the credential, verified by Vault via the Kubernetes TokenReview
+	// API) over AppRole -- no role_id/secret_id pair to provision, deliver,
+	// or rotate. This is the in-cluster idiomatic method: it is what every
+	// non-Go Vault consumer on this cluster already uses (see
+	// the GitOps repository platform/vault/k8s-auth-*-role.yaml and the
+	// AuthBackendRole precedent for each service), and it requires no static
+	// secret material at all.
+	KubernetesRole string `mapstructure:"VAULT_K8S_ROLE"`
+
+	// KubernetesMountPath is the mount path of the Kubernetes auth backend
+	// (Vault default: "kubernetes").
+	KubernetesMountPath string `mapstructure:"VAULT_K8S_MOUNT_PATH"`
+
+	// KubernetesTokenPath is the filesystem path to the pod's ServiceAccount
+	// JWT presented as the login credential. Defaults to the standard
+	// projected/automounted path; override when the JWT is delivered via a
+	// dedicated projected volume instead (recommended when
+	// automountServiceAccountToken is false at the pod level for other
+	// reasons, so only this narrowly-scoped token is exposed to the
+	// container rather than the full default SA token).
+	KubernetesTokenPath string `mapstructure:"VAULT_K8S_TOKEN_PATH"`
+
 	// Namespace for Vault Enterprise namespaces.
 	Namespace string `mapstructure:"VAULT_NAMESPACE"`
 
@@ -40,7 +64,19 @@ type Config struct {
 	// TokenRenewalInterval is how often to attempt token renewal.
 	TokenRenewalInterval time.Duration `mapstructure:"VAULT_TOKEN_RENEWAL_INTERVAL"`
 
-	// MountPath is the mount path for the KV secrets engine.
+	// MountPath is the mount path for the KV v2 secrets engine that GetSecret
+	// / PutSecret address. It is a mount name, not a path prefix: every
+	// StandardMappings VaultPath (see config_loader.go) is written relative
+	// to this mount, e.g. "platform/jwt" under mount "example" reads as
+	// example/data/platform/jwt. The one live KV v2 mount used for these
+	// application secrets on this cluster is "example" (see the
+	// ClusterSecretStore "vault-backend" in the GitOps repository, which every
+	// non-Go consumer already reads through); "secret" is Vault's built-in
+	// default mount and holds none of this data. Getting this wrong doesn't
+	// 404 -- it silently nests the logical path one level too deep under
+	// the wrong mount (e.g. secret/data/example/platform/jwt) and the
+	// caller's own policy denies it there, surfacing as a bare 403 that
+	// looks like a missing grant rather than a wrong URL.
 	MountPath string `mapstructure:"VAULT_MOUNT_PATH"`
 
 	// RetryMax is the maximum number of retries for Vault operations.
@@ -60,7 +96,9 @@ func DefaultConfig() Config {
 		Address:              "http://vault:8200",
 		CacheTTL:             5 * time.Minute,
 		TokenRenewalInterval: 30 * time.Minute,
-		MountPath:            "secret",
+		MountPath:            "example",
+		KubernetesMountPath:  "kubernetes",
+		KubernetesTokenPath:  "/var/run/secrets/kubernetes.io/serviceaccount/token",
 		RetryMax:             3,
 		RetryWaitMin:         1 * time.Second,
 		RetryWaitMax:         5 * time.Second,
@@ -135,10 +173,14 @@ func NewClient(cfg Config) (*Client, error) {
 }
 
 // authenticate performs authentication with Vault.
-// Supports both direct token auth (dev mode via VAULT_TOKEN) and AppRole auth (production).
+// Supports direct token auth (dev mode via VAULT_TOKEN), Kubernetes auth
+// (production, in-cluster; selected by setting VAULT_K8S_ROLE), and AppRole
+// auth (selected by setting VAULT_ROLE_ID/VAULT_SECRET_ID). Kubernetes auth is
+// checked before AppRole so a service that sets VAULT_K8S_ROLE never needs to
+// also carry unused AppRole config.
 func (c *Client) authenticate() error {
 	// Dev mode: direct token auth via VAULT_TOKEN env var
-	if token := os.Getenv("VAULT_TOKEN"); token != "" && (c.config.RoleID == "" || c.config.SecretID == "") {
+	if token := os.Getenv("VAULT_TOKEN"); token != "" && (c.config.RoleID == "" || c.config.SecretID == "") && c.config.KubernetesRole == "" {
 		c.client.SetToken(token)
 		c.tokenMu.Lock()
 		c.tokenExpiry = time.Now().Add(24 * time.Hour)
@@ -146,9 +188,14 @@ func (c *Client) authenticate() error {
 		return nil
 	}
 
+	if c.config.KubernetesRole != "" {
+		return c.authenticateKubernetes()
+	}
+
 	// Production mode: AppRole authentication
 	if c.config.RoleID == "" || c.config.SecretID == "" {
-		return fmt.Errorf("VAULT_ROLE_ID and VAULT_SECRET_ID required for AppRole auth (or set VAULT_TOKEN for dev)")
+		return fmt.Errorf("VAULT_ROLE_ID and VAULT_SECRET_ID required for AppRole auth " +
+			"(or VAULT_K8S_ROLE for Kubernetes auth, or VAULT_TOKEN for dev)")
 	}
 
 	data := map[string]interface{}{
@@ -161,13 +208,50 @@ func (c *Client) authenticate() error {
 		return fmt.Errorf("AppRole login failed: %w", err)
 	}
 
+	return c.setTokenFromAuth(resp)
+}
+
+// authenticateKubernetes logs in to Vault's Kubernetes auth method using the
+// pod's projected ServiceAccount JWT as the credential. Vault verifies the JWT
+// against the Kubernetes TokenReview API and, on success, issues a Vault token
+// scoped to the policies bound to KubernetesRole (see the AuthBackendRole
+// resource provisioned for the consuming service in the GitOps repository).
+//
+// No static secret is minted, stored, or rotated for this path: the
+// credential is the SA token Kubernetes itself already manages.
+func (c *Client) authenticateKubernetes() error {
+	jwt, err := os.ReadFile(c.config.KubernetesTokenPath)
+	if err != nil {
+		return fmt.Errorf("read Kubernetes service account token at %q: %w", c.config.KubernetesTokenPath, err)
+	}
+
+	mount := c.config.KubernetesMountPath
+	if mount == "" {
+		mount = "kubernetes"
+	}
+
+	data := map[string]interface{}{
+		"role": c.config.KubernetesRole,
+		"jwt":  string(jwt),
+	}
+
+	resp, err := c.client.Logical().Write(fmt.Sprintf("auth/%s/login", mount), data)
+	if err != nil {
+		return fmt.Errorf("kubernetes auth login failed (role=%s, mount=%s): %w", c.config.KubernetesRole, mount, err)
+	}
+
+	return c.setTokenFromAuth(resp)
+}
+
+// setTokenFromAuth applies a successful login response's client token and
+// lease duration, shared by every auth method's login call.
+func (c *Client) setTokenFromAuth(resp *api.Secret) error {
 	if resp == nil || resp.Auth == nil {
 		return fmt.Errorf("empty auth response from Vault")
 	}
 
 	c.client.SetToken(resp.Auth.ClientToken)
 
-	// Calculate token expiry
 	c.tokenMu.Lock()
 	c.tokenExpiry = time.Now().Add(time.Duration(resp.Auth.LeaseDuration) * time.Second)
 	c.tokenMu.Unlock()
@@ -222,8 +306,9 @@ func (c *Client) renewToken() error {
 }
 
 // GetSecret retrieves a secret from Vault by path.
-// The path should be relative to the configured mount path.
-// Example: "example/platform/jwt" for secret/example/platform/jwt
+// path is relative to the configured KV v2 mount (c.config.MountPath, e.g.
+// "example") -- it must NOT repeat the mount name. Example: path
+// "platform/jwt" against mount "example" reads example/data/platform/jwt.
 func (c *Client) GetSecret(ctx context.Context, path string) (map[string]interface{}, error) {
 	if !c.config.Enabled {
 		return nil, fmt.Errorf("vault is not enabled")
@@ -238,17 +323,17 @@ func (c *Client) GetSecret(ctx context.Context, path string) (map[string]interfa
 	fullPath := fmt.Sprintf("%s/data/%s", c.config.MountPath, path)
 	secret, err := c.client.Logical().ReadWithContext(ctx, fullPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read secret at %s: %w", path, err)
+		return nil, fmt.Errorf("failed to read secret: mount=%q path=%q: %w", c.config.MountPath, path, err)
 	}
 
 	if secret == nil || secret.Data == nil {
-		return nil, fmt.Errorf("secret not found at %s", path)
+		return nil, fmt.Errorf("secret not found: mount=%q path=%q", c.config.MountPath, path)
 	}
 
 	// KV v2 wraps data in a "data" key
 	data, ok := secret.Data["data"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("unexpected secret format at %s", path)
+		return nil, fmt.Errorf("unexpected secret format: mount=%q path=%q", c.config.MountPath, path)
 	}
 
 	// Cache the secret
@@ -277,7 +362,7 @@ func (c *Client) PutSecret(ctx context.Context, path string, data map[string]int
 		// An empty write creates a version with no keys, which reads back as a
 		// present-but-empty secret -- indistinguishable from a corrupt entry
 		// for any consumer. Refuse it rather than store it.
-		return fmt.Errorf("refusing to write empty secret at %s", path)
+		return fmt.Errorf("refusing to write empty secret: mount=%q path=%q", c.config.MountPath, path)
 	}
 
 	// KV v2 requires the payload nested under "data" and writes to the /data/
@@ -286,8 +371,9 @@ func (c *Client) PutSecret(ctx context.Context, path string, data map[string]int
 	if _, err := c.client.Logical().WriteWithContext(ctx, fullPath, map[string]interface{}{
 		"data": data,
 	}); err != nil {
-		// The path is safe to log; the values are not, and are never included.
-		return fmt.Errorf("failed to write secret at %s: %w", path, err)
+		// The mount and path are safe to log; the values are not, and are
+		// never included.
+		return fmt.Errorf("failed to write secret: mount=%q path=%q: %w", c.config.MountPath, path, err)
 	}
 
 	c.InvalidateCache(path)

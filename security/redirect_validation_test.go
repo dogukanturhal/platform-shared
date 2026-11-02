@@ -168,12 +168,12 @@ func TestValidateRedirectURL(t *testing.T) {
 		},
 		{
 			name:        "handle case-insensitive domains",
-			redirectURL: "https://APP.EXAMPLESUITE.APP/dashboard",
+			redirectURL: "https://APP.EXAMPLE.APP/dashboard",
 			config: RedirectValidationConfig{
-				BaseDomain:  "ExampleSuite.app",
+				BaseDomain:  "Example.app",
 				DefaultPath: "/",
 			},
-			expected: "https://APP.EXAMPLESUITE.APP/dashboard",
+			expected: "https://APP.EXAMPLE.APP/dashboard",
 		},
 
 		// Default path

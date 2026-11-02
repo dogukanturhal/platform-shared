@@ -93,7 +93,7 @@ func TestValidateAccessToken_ValidToken(t *testing.T) {
 // property Config.LogIssuerCheck's doc comment promises: it is a pure
 // observer. Toggling it on must not change accept/reject decisions in
 // either direction -- a bug that let it do so would make an operator's
-// diagnostic switch double as a silent behaviour change. See t-445.
+// diagnostic switch double as a silent behaviour change.
 func TestValidateAccessToken_LogIssuerCheck_NeverAltersOutcome(t *testing.T) {
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -471,7 +471,7 @@ func TestValidateAccessToken_WrongAudience_Rejected(t *testing.T) {
 	// (accounts/sso-redirect's RFC 8693 exchange audiences the token to
 	// destinationOrigin) -- must not validate against a platform consumer.
 	tokenString := createTestTokenWithAudience(testSecret, tenantID, userID, time.Now().Add(time.Hour),
-		[]string{"https://tenant-b.ligarbo.com"})
+		[]string{"https://tenant-b.example.net"})
 
 	validator := NewTokenValidator(&Config{JWTSecret: testSecret})
 	if _, err := validator.ValidateAccessToken(tokenString); err == nil {

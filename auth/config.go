@@ -52,7 +52,7 @@ type Config struct {
 	// log that only fires on rejection reads as zero in two different
 	// worlds that must be told apart — RequireValidIssuer engaging
 	// correctly against already-reconciled traffic, and RequireValidIssuer
-	// never being evaluated at all (t-445, c-306). Logging every
+	// never being evaluated at all. Logging every
 	// evaluation, including matches, and including runs where
 	// RequireValidIssuer is currently false, is what lets the same signal
 	// answer two different questions: pre-flip, it enumerates blast radius
@@ -62,7 +62,7 @@ type Config struct {
 	//
 	// Left false by default: this is a hot path (every JWT-authenticated
 	// request), so it is meant to be turned on for one canary service for
-	// the duration of a flip, not left on fleet-wide. See t-445's note for
+	// the duration of a flip, not left on fleet-wide. See the rollout notes for
 	// the current rollout.
 	LogIssuerCheck bool
 
@@ -91,6 +91,11 @@ type Config struct {
 
 	// AllowExpiredForRefresh allows slightly expired tokens for refresh operations
 	AllowExpiredForRefresh bool
+
+	// PermissionChecker, when set, is consulted by RequirePermission and
+	// RequireAllPermissions for user JWTs whose claims lack the permission.
+	// nil keeps claim-only behaviour. Service tokens never use it.
+	PermissionChecker PermissionChecker `json:"-"`
 
 	// ExpiredGracePeriod is how long after expiry a token can still be used for refresh
 	ExpiredGracePeriod time.Duration

@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: gomod
+    directory: /manifest
+    schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /storage-sdk
+    schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /tools/analyzers/nilerrwrap
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

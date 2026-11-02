@@ -173,7 +173,7 @@ func (m *Manager) MustGetSecret(ctx context.Context, vaultPath, vaultKey, envVar
 	return value, nil
 }
 
-// LoadStandardSecrets loads all standard ExampleSuite secrets and sets them in the environment
+// LoadStandardSecrets loads all standard secrets and sets them in the environment
 // for backward compatibility with existing config loading.
 func (m *Manager) LoadStandardSecrets(ctx context.Context) error {
 	if !m.IsEnabled() {

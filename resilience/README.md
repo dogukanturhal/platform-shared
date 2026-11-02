@@ -1,6 +1,6 @@
 # Resilience Package
 
-Circuit breaker and retry library for resilient inter-service HTTP communication in ExampleSuite.
+Circuit breaker and retry library for resilient inter-service HTTP communication.
 
 ## Features
 
@@ -17,7 +17,7 @@ Circuit breaker and retry library for resilient inter-service HTTP communication
 ### Basic Usage
 
 ```go
-import "github.com/hexxlock/platform-services/shared/resilience"
+import "github.com/dogukanturhal/platform-shared/resilience"
 
 // Create a resilient HTTP client
 client := resilience.NewResilientHTTPClient()
@@ -258,9 +258,9 @@ All components are thread-safe and can be safely used across multiple goroutines
 - Request body is cloned for retries (memory overhead for large payloads)
 - Use connection pooling via custom `http.Client` for high-throughput scenarios
 
-## Integration with ExampleSuite
+## Integration
 
-This package is designed for inter-service communication within ExampleSuite:
+This package is designed for inter-service communication:
 
 - **IAM Service**: Authentication and authorization calls
 - **Tenant Management**: Tenant provisioning and metadata
@@ -291,4 +291,4 @@ client := resilience.NewResilientHTTPClient(
 
 ## License
 
-Part of ExampleSuite platform services.
+Part of multi-tenant services.

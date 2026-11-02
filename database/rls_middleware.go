@@ -1,192 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package database provides RLS (Row Level Security) middleware for PostgreSQL
+// Package database provides RLS (Row Level Security) tenant-context helpers for PostgreSQL.
 package database
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/dogukanturhal/platform-shared/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jmoiron/sqlx"
 )
 
-// setConfigSQL uses set_config() instead of SET because PostgreSQL's SET command
-// does not support parameterized queries ($1) via the extended query protocol.
-// pgx uses the extended protocol by default, causing SET $1 to fail silently.
+// setConfigLocalSQL uses set_config() instead of SET LOCAL because PostgreSQL's SET
+// command does not support parameterized queries ($1) via the extended query
+// protocol. pgx uses the extended protocol by default, causing SET $1 to fail
+// silently.
 //
 // set_config(setting, value, is_local):
-//   - is_local=false → session-scoped (like SET)
-//   - is_local=true  → transaction-scoped (like SET LOCAL)
-const (
-	setConfigSQL      = "SELECT set_config('app.current_tenant_id', $1, false)"
-	setConfigLocalSQL = "SELECT set_config('app.current_tenant_id', $1, true)"
-)
-
-// RLSMiddleware creates a Gin middleware that sets app.current_tenant_id for PostgreSQL RLS.
-// This middleware MUST be applied AFTER auth middleware OR tenant extractor middleware.
-//
-// CRITICAL: For each request with a tenant_id in context (from JWT or X-Tenant-ID header),
-// this middleware acquires a connection and executes:
-//
-//	SELECT set_config('app.current_tenant_id', '<tenant_uuid>', false)
-//
-// This is REQUIRED for Row Level Security (RLS) policies that filter by:
-//
-//	tenant_id = current_setting('app.current_tenant_id', true)::UUID
-//
-// WITHOUT this middleware, RLS policies will block ALL rows, causing 0-row queries.
-//
-// Usage:
-//
-//	router.Use(authMiddleware.RequireAuth())
-//	router.Use(database.RLSMiddleware(db))
-//	router.POST("/api/resource", handler.Create)
-//
-// Supports: *sql.DB, *sqlx.DB, *pgxpool.Pool
-func RLSMiddleware(db interface{}) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Extract tenant ID from context (set by auth middleware or TenantExtractor)
-		tenantIDVal, exists := c.Get(auth.TenantIDKey)
-		if !exists {
-			// Try alternate key "tenant_id" (used by some services)
-			tenantIDVal, exists = c.Get("tenant_id")
-			if !exists {
-				// No tenant ID - skip RLS setting (for system-level/public endpoints)
-				c.Next()
-				return
-			}
-		}
-
-		tenantID, ok := tenantIDVal.(uuid.UUID)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "Invalid tenant ID type in context",
-			})
-			return
-		}
-
-		// Skip nil UUID (system context)
-		if tenantID == uuid.Nil {
-			c.Next()
-			return
-		}
-
-		// Set tenant context on the database connection
-		// IMPORTANT: We must acquire a connection for the request lifecycle
-		var err error
-		switch v := db.(type) {
-		case *sql.DB:
-			conn, connErr := v.Conn(c.Request.Context())
-			if connErr != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to acquire database connection",
-				})
-				return
-			}
-			defer func() { _ = conn.Close() }()
-
-			_, err = conn.ExecContext(c.Request.Context(), setConfigSQL, tenantID.String())
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to set tenant context for RLS",
-				})
-				return
-			}
-			c.Set("db_conn", conn)
-
-		case *sqlx.DB:
-			conn, connErr := v.Conn(c.Request.Context())
-			if connErr != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to acquire database connection",
-				})
-				return
-			}
-			defer func() { _ = conn.Close() }()
-
-			_, err = conn.ExecContext(c.Request.Context(), setConfigSQL, tenantID.String())
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to set tenant context for RLS",
-				})
-				return
-			}
-			c.Set("db_conn", conn)
-
-		case *pgxpool.Pool:
-			conn, connErr := v.Acquire(c.Request.Context())
-			if connErr != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to acquire database connection",
-				})
-				return
-			}
-			defer conn.Release()
-
-			_, err = conn.Exec(c.Request.Context(), setConfigSQL, tenantID.String())
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to set tenant context for RLS",
-				})
-				return
-			}
-			c.Set("pgx_conn", conn)
-
-		default:
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "Unsupported database type for RLS middleware",
-			})
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// RLSMiddlewarePgxPool creates RLS middleware specifically for pgxpool.Pool
-// This is a convenience function for services using pgx
-func RLSMiddlewarePgxPool(pool *pgxpool.Pool) gin.HandlerFunc {
-	return RLSMiddleware(pool)
-}
-
-// SetRLSContext sets app.current_tenant_id on a sql.DB connection for RLS
-// Uses set_config with is_local=true for transaction-scoped setting
-func SetRLSContext(ctx context.Context, db *sql.DB, tenantID uuid.UUID) error {
-	_, err := db.ExecContext(ctx, setConfigLocalSQL, tenantID.String())
-	if err != nil {
-		return fmt.Errorf("failed to set app.current_tenant_id: %w", err)
-	}
-	return nil
-}
-
-// SetRLSContextSQLX sets app.current_tenant_id on a sqlx.DB connection for RLS
-func SetRLSContextSQLX(ctx context.Context, db *sqlx.DB, tenantID uuid.UUID) error {
-	_, err := db.ExecContext(ctx, setConfigLocalSQL, tenantID.String())
-	if err != nil {
-		return fmt.Errorf("failed to set app.current_tenant_id: %w", err)
-	}
-	return nil
-}
-
-// SetRLSContextPgx sets app.current_tenant_id on a pgxpool connection for RLS
-func SetRLSContextPgx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID) error {
-	_, err := pool.Exec(ctx, setConfigLocalSQL, tenantID.String())
-	if err != nil {
-		return fmt.Errorf("failed to set app.current_tenant_id: %w", err)
-	}
-	return nil
-}
+//   - is_local=false → session-scoped (like SET). REMOVED from this package: a
+//     session-scoped setting is undefined behaviour under PgBouncer transaction
+//     pooling (the default for every consumer of this package — see
+//     the GitOps repository/environments/*/cnpg/manifests/pooler-example-app-pg.yaml).
+//     Under transaction pooling a client's logical connection is rebound to a
+//     different backend server connection per transaction/autocommit statement,
+//     so a session-scoped set_config() has no guaranteed relationship to the
+//     backend that serves the caller's NEXT statement. It can (a) not persist,
+//     giving a fail-closed 0-row RLS result, or (b) persist on a backend that a
+//     DIFFERENT tenant's request is subsequently assigned, giving a fail-open
+//     cross-tenant data leak once RLS is enabled. There is no way to make
+//     is_local=false safe here short of pinning one physical backend connection
+//     per request outside the pooler, which defeats the pooler's purpose.
+//   - is_local=true  → transaction-scoped (like SET LOCAL). This is the only safe
+//     form under transaction pooling: the setting and the query that depends on
+//     it are guaranteed to run against the same backend because they are the
+//     same transaction. Every helper in this file uses this form exclusively.
+const setConfigLocalSQL = "SELECT set_config('app.current_tenant_id', $1, true)"
 
 // WithTenantContext wraps a database operation with RLS context using a transaction.
-// Use this in repositories when RLS middleware is not available (e.g., background jobs).
-// Uses set_config with is_local=true so the setting is scoped to the transaction.
+// Uses set_config with is_local=true so the setting is scoped to the transaction —
+// the only form that is safe when the underlying connection is served through a
+// PgBouncer transaction-mode pooler (see setConfigLocalSQL doc above). This is the
+// canonical way to run tenant-scoped queries in this codebase: there is no
+// request-scoped "RLS middleware" in this package, because a middleware that sets
+// context on a connection ahead of the query that will actually use it cannot be
+// made safe under transaction pooling (the query is not guaranteed to land on the
+// same backend). Call this (or WithTenantContextSQLX / WithTenantContextPgx)
+// directly from the repository method that runs the tenant-scoped query.
 //
 // Example:
 //
@@ -216,7 +78,8 @@ func WithTenantContext(ctx context.Context, db *sql.DB, tenantID uuid.UUID, fn f
 	return nil
 }
 
-// WithTenantContextSQLX wraps a database operation with RLS context for sqlx.DB
+// WithTenantContextSQLX wraps a database operation with RLS context for sqlx.DB.
+// See WithTenantContext for the transaction-pooling rationale.
 func WithTenantContextSQLX(ctx context.Context, db *sqlx.DB, tenantID uuid.UUID, fn func(tx *sqlx.Tx) error) error {
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -240,7 +103,8 @@ func WithTenantContextSQLX(ctx context.Context, db *sqlx.DB, tenantID uuid.UUID,
 	return nil
 }
 
-// WithTenantContextPgx wraps a database operation with RLS context for pgxpool
+// WithTenantContextPgx wraps a database operation with RLS context for pgxpool.
+// See WithTenantContext for the transaction-pooling rationale.
 func WithTenantContextPgx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(tx pgx.Tx) error) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -265,6 +129,7 @@ func WithTenantContextPgx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid
 }
 
 // TenantAwareDB wraps a database connection and automatically sets RLS context
+// (transaction-scoped, via WithTenantContextSQLX) around every operation.
 type TenantAwareDB struct {
 	db       *sqlx.DB
 	tenantID uuid.UUID

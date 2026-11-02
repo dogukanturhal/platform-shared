@@ -51,11 +51,11 @@ type Client struct {
 	// token and an empty key is valid.
 	requireStaticKey bool
 	// platformTenantID overrides the tenant sent on registration. Empty uses
-	// PLATFORM_TENANT_ID, then the well-known example-tenant id.
+	// PLATFORM_TENANT_ID, then the well-known exampletenant id.
 	platformTenantID string
 }
 
-// defaultPlatformTenantID is example-tenant, the tenant that owns
+// defaultPlatformTenantID is exampletenant, the tenant that owns
 // platform-level records. Overridable via PLATFORM_TENANT_ID so a differently
 // seeded environment does not need a rebuild.
 const defaultPlatformTenantID = "00000000-0000-0000-0000-000000000002"
@@ -74,8 +74,8 @@ func (c *Client) tenantID() string {
 }
 
 // NewClient creates a new permission registration client. logger must not be
-// nil — it is the only place a registration failure is ever reported (t-528,
-// t-530: a package-global zap.L() default silently discarded every failure in
+// nil — it is the only place a registration failure is ever reported (
+// a package-global zap.L() default silently discarded every failure in
 // services that never call zap.ReplaceGlobals).
 //
 // Deprecated: Use NewClientWithHTTPClient for OAuth2 service-auth support.
@@ -182,7 +182,7 @@ func (c *Client) RegisterModule(ctx context.Context, module string, permissions 
 		// catalog when this fires, silently leaving every permission that
 		// module's own RequirePermission gates check for unreachable by
 		// anyone. That is exactly how the /internal/v1/permissions/register
-		// 404 (t-396) went unnoticed for weeks -- non-blocking still means
+		// 404 went unnoticed for weeks -- non-blocking still means
 		// "don't fail startup", it does not mean "don't page anyone".
 		c.logger.Error("Permission registration request failed (non-blocking)",
 			zap.String("service", c.serviceName),
@@ -264,7 +264,13 @@ func LoadManifest(path string) (*PermissionManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read manifest %q: %w", path, err)
 	}
+	return ParseManifest(data, path)
+}
 
+// ParseManifest parses a YAML permission manifest from memory, e.g. a file
+// embedded with //go:embed so it ships inside the binary. name is only used in
+// error messages.
+func ParseManifest(data []byte, name string) (*PermissionManifest, error) {
 	// Unmarshal into a shadow struct first so that we control field mapping
 	// independently of the JSON wire tags on PermissionDef.
 	var raw struct {
@@ -272,17 +278,17 @@ func LoadManifest(path string) (*PermissionManifest, error) {
 		Permissions []permissionDefYAML `yaml:"permissions"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse manifest %q: %w", path, err)
+		return nil, fmt.Errorf("parse manifest %q: %w", name, err)
 	}
 
 	if raw.Module == "" {
-		return nil, fmt.Errorf("manifest %q: module field is required", path)
+		return nil, fmt.Errorf("manifest %q: module field is required", name)
 	}
 
 	perms := make([]PermissionDef, 0, len(raw.Permissions))
 	for _, p := range raw.Permissions {
 		if p.Resource == "" {
-			return nil, fmt.Errorf("manifest %q: permission entry missing resource field", path)
+			return nil, fmt.Errorf("manifest %q: permission entry missing resource field", name)
 		}
 		perms = append(perms, PermissionDef(p))
 	}
@@ -307,6 +313,18 @@ func LoadManifest(path string) (*PermissionManifest, error) {
 //	    description: Invoice management
 func (c *Client) RegisterFromManifest(ctx context.Context, manifestPath string) error {
 	manifest, err := LoadManifest(manifestPath)
+	if err != nil {
+		return fmt.Errorf("load manifest: %w", err)
+	}
+
+	return c.RegisterModule(ctx, manifest.Module, manifest.Permissions)
+}
+
+// RegisterFromManifestBytes is RegisterFromManifest for a manifest already in
+// memory. Services embed permissions.yaml with //go:embed and pass the bytes, so
+// registration does not depend on the file being present in the container image.
+func (c *Client) RegisterFromManifestBytes(ctx context.Context, data []byte) error {
+	manifest, err := ParseManifest(data, "embedded permissions manifest")
 	if err != nil {
 		return fmt.Errorf("load manifest: %w", err)
 	}

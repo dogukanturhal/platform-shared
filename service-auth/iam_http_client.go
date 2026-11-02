@@ -14,9 +14,16 @@ import (
 // lands in their env, but the service itself can still start.
 var ErrMissingCredentials = errors.New("serviceauth: SERVICE_CLIENT_ID or SERVICE_CLIENT_SECRET is empty")
 
+// ScopeRegistrationOnly is the scope a service needs for permission and
+// manifest registration alone. Pass it to IAMHTTPClientConfig.Scope ONLY
+// for a client that makes no other authenticated call — it is deliberately
+// NOT a default, because a token silently narrowed to it 403s every other
+// outbound call. See IAMHTTPClientConfig.Scope.
+const ScopeRegistrationOnly = "service:register"
+
 // IAMHTTPClientConfig holds configuration for the canonical IAM HTTP client.
 type IAMHTTPClientConfig struct {
-	// IAMURL is the base URL of Falcon-ID (e.g. http://hexxlock-iam:8005).
+	// IAMURL is the base URL of Falcon-ID (e.g. http://iam.example.internal:8005).
 	IAMURL string
 
 	// ClientID is the service's OAuth2 client_id, typically "svc-<slug>".
@@ -26,8 +33,30 @@ type IAMHTTPClientConfig struct {
 	// ExternalSecret).
 	ClientSecret string
 
-	// Scope is the OAuth2 scope string. Defaults to "service:register"
-	// when empty, which is sufficient for permission + manifest registration.
+	// Scope is the OAuth2 scope string: a space-separated subset of what
+	// this client is registered for, requested at token time.
+	//
+	// LEAVE IT EMPTY unless you deliberately want LESS than your client
+	// was granted. Empty omits the `scope` parameter, and Falcon-ID then
+	// issues the client's full registered set — making the client's
+	// ServiceClientClaim manifest the single authorization boundary,
+	// reviewed in one place instead of silently re-narrowed here.
+	//
+	// This field used to default to ScopeRegistrationOnly when empty, and
+	// that default caused a production outage (2026-09-20). An OAuth2
+	// client_credentials token can only ever be a SUBSET of what was
+	// requested, so a service that left this blank received a token
+	// carrying service:register and nothing else — no matter what its
+	// manifest granted. subscription-management's every outbound call
+	// beyond registration then 403'd insufficient_scope, silently and
+	// permanently: tenant plan writes left billing and quota entitlements
+	// stale for ten days while a tenant paid for a different plan, and
+	// subscription cancellation was wholly non-functional for customers.
+	// Nothing failed at boot, no test covered it, and the only trace was
+	// one log line nobody read.
+	//
+	// Set it explicitly ONLY to narrow below the grant, and keep the value
+	// in sync with the service's ServiceClientClaim.
 	Scope string
 
 	// Timeout is the per-request timeout on the returned *http.Client.
@@ -52,6 +81,8 @@ type IAMHTTPClientConfig struct {
 //	    IAMURL:       cfg.IAMServiceURL,
 //	    ClientID:     cfg.ServiceClientID,
 //	    ClientSecret: cfg.ServiceClientSecret,
+//	    // Scope omitted on purpose: take the full registered grant.
+//	    // Set it only to request LESS — see IAMHTTPClientConfig.Scope.
 //	})
 //	if errors.Is(err, serviceauth.ErrMissingCredentials) {
 //	    logger.Warn("SERVICE_CLIENT_ID/SECRET not set — permission registration unauthenticated")
@@ -69,16 +100,15 @@ func NewIAMHTTPClient(cfg IAMHTTPClientConfig) (*http.Client, error) {
 		return &http.Client{Timeout: timeout}, ErrMissingCredentials
 	}
 
-	scope := cfg.Scope
-	if scope == "" {
-		scope = "service:register"
-	}
-
+	// cfg.Scope passes through untouched: empty means "omit the scope
+	// parameter", which yields the client's full registered set. See
+	// IAMHTTPClientConfig.Scope for why defaulting to a narrow scope here
+	// was a silent-underprivilege footgun rather than a safe default.
 	tokenClient, err := NewTokenClient(TokenClientConfig{
 		TokenURL:     cfg.IAMURL + "/oauth/token",
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
-		Scope:        scope,
+		Scope:        cfg.Scope,
 	})
 	if err != nil {
 		return nil, err

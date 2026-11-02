@@ -70,7 +70,7 @@ type Client struct {
 // resources for the ExampleSuite product (ExampleSuiteProductID). To target a different
 // product use NewClientWithProduct. logger must not be nil — it is the only
 // place RegisterOnStartup ever reports anything: the method returns void, so
-// a caller has no error to check (t-528, t-530: a package-global zap.L()
+// a caller has no error to check (a package-global zap.L()
 // default made that the only signal, and silently, in every service that
 // never calls zap.ReplaceGlobals).
 //

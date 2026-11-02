@@ -7,7 +7,7 @@
 No changes required if you're already using the auth middleware:
 
 ```go
-import "github.com/hexxlock/platform-services/shared/auth"
+import "github.com/dogukanturhal/platform-shared/auth"
 
 // Your existing code continues to work
 config := auth.LoadFromEnv()
@@ -23,7 +23,7 @@ To support minimal tokens with Redis-based permission resolution:
 
 ```go
 import (
-    "github.com/hexxlock/platform-services/shared/auth"
+    "github.com/dogukanturhal/platform-shared/auth"
     "github.com/go-redis/redis/v8"
 )
 
