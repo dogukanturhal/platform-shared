@@ -1,25 +1,36 @@
 # platform-shared
 
+**Go packages for multi-tenant Gin and PostgreSQL services, extracted from the falcon-id services.**
+
 [![CI](https://github.com/dogukanturhal/platform-shared/actions/workflows/ci.yml/badge.svg)](https://github.com/dogukanturhal/platform-shared/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/dogukanturhal/platform-shared.svg)](https://pkg.go.dev/github.com/dogukanturhal/platform-shared)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![OpenSSF Scorecard](https://api.securityscorecard.dev/projects/github.com/dogukanturhal/platform-shared/badge)](https://securityscorecard.dev/viewer/?uri=github.com/dogukanturhal/platform-shared)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dogukanturhal/platform-shared/badge)](https://scorecard.dev/viewer/?uri=github.com/dogukanturhal/platform-shared)
 
-Go packages for building multi-tenant HTTP services: authentication, tenant
-isolation in PostgreSQL, quota checks, an outbox, outbound resilience and Vault
-access.
+Authentication, tenant isolation in PostgreSQL, quota checks, an outbox,
+outbound resilience and Vault access, as libraries you import one at a time.
 
-## Who it's for
+Pre-1.0 (latest tag v0.5.0, the API may still break). Not independently audited.
+The services it was extracted from run on an internal copy of this code.
+
+[Quickstart](#quickstart) · [Docs](https://pkg.go.dev/github.com/dogukanturhal/platform-shared) · [Architecture](#architecture-and-package-map) · [Security](#security) · [Contributing](#contributing)
+
+## Who it is for
 
 Teams running several Go services (Gin, PostgreSQL, Redis, Kafka, Vault) that
-share one identity provider and want the same auth, tenancy and resilience code
-in each of them instead of a private copy per service. It is extracted from a
-set of internal services and is used by [falcon-id](https://github.com/dogukanturhal/falcon-id).
-The identity-provider-specific packages (`permissions`, `manifest`,
-`operatorauth`, `service-auth`) assume that server's API.
+share one identity provider and want the same auth, tenancy and resilience
+code in each, instead of a private copy per service. It is extracted from a
+set of internal services and is used with
+[falcon-id](https://github.com/dogukanturhal/falcon-id). The identity-provider-specific
+packages (`permissions`, `manifest`, `operatorauth`, `service-auth`) assume
+that server's API.
 
-If you want a framework, this is not one. It is a set of libraries you import
-one at a time.
+## When not to use this
+
+- You want a framework. This is a set of libraries; it does not own your `main`.
+- You do not use Gin, pgx or sqlx, zap and Prometheus. The packages are opinionated about them.
+- Your identity provider is not falcon-id and you cannot adapt the permission and claim formats (see Status and limitations).
+- You only need one thing, such as a circuit breaker or JWT parsing. Use `sony/gobreaker` or `golang-jwt/jwt` directly.
 
 ## What is in it
 
@@ -69,14 +80,12 @@ the API not to move, given that everything is v0.x and may still break:
 
 ## Quickstart
 
-Add the module to a service:
-
 ```sh
-go get github.com/dogukanturhal/platform-shared@main
+go get github.com/dogukanturhal/platform-shared@v0.5.0
 ```
 
-No version has been tagged from this repository yet, so `@main` is what
-works today.
+Nested modules (`manifest`, `storage-sdk`) are tagged separately
+(`manifest/vX.Y.Z`, `storage-sdk/vX.Y.Z`); none has been cut yet.
 
 ### 1. Authenticated, tenant-scoped handler
 
@@ -145,7 +154,7 @@ client := resilience.NewResilientHTTPClient(
 	resilience.WithCircuitBreaker(cb),
 )
 
-req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://billing.internal/v1/plans", nil)
+req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/v1/plans", nil)
 resp, err := client.Do(req)
 if errors.Is(err, resilience.ErrCircuitOpen) {
 	// fail fast, serve a fallback
@@ -195,22 +204,19 @@ not run by `make test`. Redis-backed code is tested against miniredis.
 
 ## How it compares
 
-- **Writing it yourself per service.** That is the alternative this replaces.
-  The cost is that fixes land in one place, and the price is that you take the
-  library's opinions: Gin, pgx or sqlx, zap, Prometheus.
-- **go-kit, Kratos, go-micro.** These are frameworks with their own transport
-  and service model. This is smaller and narrower: it does not own your `main`,
-  and it targets multi-tenant PostgreSQL services specifically (RLS, per-tenant
-  routing, purge).
+- **Writing it yourself per service.** What this replaces. Fixes land in one
+  place; the price is taking the library's opinions: Gin, pgx or sqlx, zap, Prometheus.
+- **go-kit, Kratos, go-micro.** Frameworks with their own transport and
+  service model. This is narrower: it does not own your `main`, and it targets
+  multi-tenant PostgreSQL services (RLS, per-tenant routing, purge).
 - **Single-purpose libraries** such as `sony/gobreaker`, `golang-jwt/jwt` or
-  `cenkalti/backoff`. If you only need one thing, use those directly; several
-  packages here are thin layers over them. The value here is that the pieces
-  already agree on one tenant and claims model.
-- **A service mesh** handles mTLS and retries outside the process. The
-  `resilience` and `mtls` packages are for when you have no mesh or want the
-  behaviour in-process.
+  `cenkalti/backoff`. If you need one thing, use those; several packages here
+  are thin layers over them. The value here is that the pieces share one
+  tenant and claims model.
+- **A service mesh** handles mTLS and retries outside the process. `resilience`
+  and `mtls` are for when you have no mesh or want the behaviour in-process.
 
-## Architecture
+## Architecture and package map
 
 ```
             +-------------------+        +-------------------+
@@ -241,8 +247,8 @@ tokens themselves.
 
 - Everything is **v0.x**. Minor releases may break the API. From v1.0.0 the
   root module follows strict SemVer.
-- No version has been tagged from this repository yet. The nested modules need
-  their own tags (`manifest/vX.Y.Z`, `storage-sdk/vX.Y.Z`) when they are cut.
+- Tags v0.4.0 and v0.5.0 exist for the root module. The nested modules have no
+  tags of their own yet.
 - Several packages encode assumptions of the system they came from: the
   permission string format (`module:resource:action`), the claim names in
   tokens, the Vault path layout in `vault.StandardMappings`, and falcon-id's
@@ -250,23 +256,27 @@ tokens themselves.
 - `permissions`, `manifest` (package), `auth/falconauthz` and `operatorauth`
   only make sense next to falcon-id.
 - Test coverage is uneven. `resilience`, `middleware`, `service-auth`, `auth`
-  and `tenant` are well covered. `config`, `outbox`, `tracing`, `logger`,
-  `domain`, `defaults` and `version` have no unit tests of their own, and
-  `operatorauth`, `mtls` and `quota` have a single test file each.
-- The build pins Go 1.25. The nested `manifest` and `storage-sdk` modules
-  declare 1.24.
+  and `tenant` have the most test files. `config`, `outbox`, `tracing`,
+  `logger`, `domain`, `defaults` and `version` have no unit tests of their
+  own, and `operatorauth`, `mtls` and `quota` have a single test file each.
+- The root module requires Go 1.26. `manifest` and `storage-sdk` declare
+  1.24.4, `nilerrwrap` 1.25.0.
 - Not a security product: the SSRF and redirect validators in `security` help
   but are not a substitute for network egress controls.
+- Package documentation on pkg.go.dev has few runnable examples so far.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off. Everyone
-taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off. Bugs and
+ideas go in [Issues](https://github.com/dogukanturhal/platform-shared/issues).
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Security
 
-Please report vulnerabilities privately, as described in
-[SECURITY.md](SECURITY.md). Do not open public issues for them.
+Report vulnerabilities privately through
+[GitHub private vulnerability reporting](https://github.com/dogukanturhal/platform-shared/security/advisories/new),
+or email dogukanturhal@hexxlock.com. Details are in [SECURITY.md](SECURITY.md).
+Do not open public issues for them.
 
 ## License
 
