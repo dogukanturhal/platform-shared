@@ -5,45 +5,80 @@ package tracing
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// InitTracer initializes the OpenTelemetry tracer provider with OTLP gRPC exporter.
-// It returns the tracer provider that should be shut down when the application exits.
+// normalizeEndpoint turns "http://host:4317", "grpc://host:4317" or "host:4317"
+// into a bare host:port and reports whether TLS was requested (https scheme).
+func normalizeEndpoint(endpoint string) (hostPort string, secure bool) {
+	endpoint = strings.TrimSpace(endpoint)
+	if i := strings.Index(endpoint, "://"); i >= 0 {
+		secure = strings.EqualFold(endpoint[:i], "https")
+		endpoint = endpoint[i+3:]
+	}
+	return strings.TrimRight(endpoint, "/"), secure
+}
+
+// samplerRatio reads OTEL_TRACES_SAMPLER_ARG (0..1). Default 1.0: the
+// collector tail-samples, so services export everything.
+func samplerRatio() float64 {
+	if v := os.Getenv("OTEL_TRACES_SAMPLER_ARG"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			return f
+		}
+	}
+	return 1.0
+}
+
+// InitTracer initializes the OpenTelemetry tracer provider with an OTLP gRPC exporter.
+// endpoint may be empty, in which case OTEL_EXPORTER_OTLP_TRACES_ENDPOINT /
+// OTEL_EXPORTER_OTLP_ENDPOINT is used. A scheme prefix (http://) is accepted.
+// The returned provider must be shut down on exit (see Shutdown).
 func InitTracer(serviceName, endpoint string) (*sdktrace.TracerProvider, error) {
 	ctx := context.Background()
 
-	// Create OTLP gRPC exporter
-	conn, err := grpc.NewClient(endpoint,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gRPC connection: %w", err)
+	if endpoint == "" {
+		endpoint = os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+	}
+	if endpoint == "" {
+		endpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	}
+	hostPort, secure := normalizeEndpoint(endpoint)
+	if hostPort == "" {
+		return nil, errors.New("tracing: no OTLP endpoint configured")
 	}
 
-	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
+	opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(hostPort)}
+	if !secure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	}
+	exporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
-	// Create resource with service information
+	// Schemaless attributes merge cleanly with resource.Default() regardless of
+	// the semconv version the SDK was built against.
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+		resource.NewSchemaless(
 			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion("1.0.0"),
 		),
@@ -52,26 +87,35 @@ func InitTracer(serviceName, endpoint string) (*sdktrace.TracerProvider, error) 
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create tracer provider with batch span processor
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter,
 			sdktrace.WithBatchTimeout(5*time.Second),
 			sdktrace.WithMaxExportBatchSize(512),
 		),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(1.0))),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplerRatio()))),
 	)
 
-	// Set as global tracer provider
 	otel.SetTracerProvider(tp)
-
-	// Set up propagator for distributed tracing context
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
 
 	return tp, nil
+}
+
+// Shutdown flushes and stops the provider, bounded by timeout (default 5s).
+func Shutdown(tp *sdktrace.TracerProvider, timeout time.Duration) error {
+	if tp == nil {
+		return nil
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return tp.Shutdown(ctx)
 }
 
 // GinMiddleware returns a Gin middleware that adds OpenTelemetry tracing to HTTP requests.
@@ -120,6 +164,10 @@ func GinMiddleware(serviceName string) gin.HandlerFunc {
 		// Mark span as error if status code indicates failure
 		if status >= 400 {
 			span.SetAttributes(attribute.Bool("error", true))
+		}
+		// Per OTel HTTP semconv, only 5xx is a server-side span error.
+		if status >= 500 {
+			span.SetStatus(codes.Error, http.StatusText(status))
 		}
 
 		// Record any errors from the Gin context
